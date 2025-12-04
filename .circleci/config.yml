@@ -34,10 +34,25 @@ commands:
           command: |
             IMAGE_TAG="${CIRCLE_SHA1:0:7}"
             FULL_IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
-            LATEST_IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:latest"
+            TEMP_IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:prescan"
             echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
             echo "export FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $BASH_ENV
-            echo "export LATEST_IMAGE_NAME=$LATEST_IMAGE_NAME" >> $BASH_ENV
+            echo "export TEMP_IMAGE_NAME=$TEMP_IMAGE_NAME" >> $BASH_ENV
+
+  docker-login:
+    description: "Login to GitHub Container Registry"
+    steps:
+      - run:
+          name: Login to GitHub Container Registry
+          command: |
+            if [ -z "$GITHUB_TOKEN" ]; then
+              echo "Error: GITHUB_TOKEN environment variable is not set"
+              exit 1
+            fi
+            mkdir -p ~/.docker
+            echo -n "${GITHUB_USERNAME}:${GITHUB_TOKEN}" | base64 > /tmp/auth.txt
+            echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(cat /tmp/auth.txt)\"}}}" > ~/.docker/config.json
+            rm /tmp/auth.txt
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
@@ -53,23 +68,16 @@ jobs:
       - checkout
       - setup-docker-buildx
       - setup-image-vars
+      - docker-login
       - run:
-          name: Build Docker image (single platform for scanning)
+          name: Build and push Docker image with temp tag (multi-platform)
           command: |
             docker buildx build \
-              --platform linux/amd64 \
-              --tag "${FULL_IMAGE_NAME}" \
+              --platform linux/amd64,linux/arm64 \
+              --tag "${TEMP_IMAGE_NAME}" \
               --file "${DOCKERFILE}" \
-              --load \
+              --push \
               .
-      - run:
-          name: Save image to tar for scanning
-          command: |
-            docker save "${FULL_IMAGE_NAME}" -o /tmp/image.tar
-      - persist_to_workspace:
-          root: /tmp
-          paths:
-            - image.tar
 
   scan:
     machine:
@@ -78,70 +86,66 @@ jobs:
       IMAGE_NAME: << pipeline.parameters.image_name >>
       GITHUB_USERNAME: << pipeline.parameters.github_username >>
     steps:
-      - attach_workspace:
-          at: /tmp
       - setup-image-vars
+      - docker-login
       - run:
           name: Scan image for vulnerabilities
           command: |
-            # Scan the image tar file before pushing using Trivy's official container
-            # Exit code 0 allows the build to continue even if vulnerabilities are found
-            # Change --exit-code 1 to fail the build on HIGH/CRITICAL vulnerabilities
+            # Scan the pushed temp-tagged image using Trivy
+            # Exit code 1 will fail the build on HIGH/CRITICAL vulnerabilities
+            # This ensures we only retag safe images
             docker run --rm \
-              -v /tmp:/tmp \
+              -v ~/.docker/config.json:/root/.docker/config.json:ro \
               aquasec/trivy:latest image \
-              --input /tmp/image.tar \
-              --exit-code 0 \
+              "${TEMP_IMAGE_NAME}" \
+              --exit-code 1 \
               --severity HIGH,CRITICAL \
               --format table
+      - run:
+          name: Delete temp image on scan failure
+          command: |
+            # Get package version ID for the "prescan" tag and delete it
+            # Note: Use 'orgs' for organization packages, 'users' for personal account packages
+            # GHCR requires API deletion - docker CLI doesn't support it
+            PACKAGE_VERSION_ID=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions" \
+              | grep -B5 '"prescan"' | grep '"id"' | head -1 | sed 's/.*"id": *\([0-9]*\).*/\1/')
+
+            if [ -n "$PACKAGE_VERSION_ID" ]; then
+              curl -X DELETE \
+                -H "Authorization: token ${GITHUB_TOKEN}" \
+                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}"
+            fi
+          when: on_fail
 
   push:
     machine:
       image: ubuntu-2204:current
     environment:
       IMAGE_NAME: << pipeline.parameters.image_name >>
-      DOCKERFILE: << pipeline.parameters.dockerfile >>
       GITHUB_USERNAME: << pipeline.parameters.github_username >>
     steps:
-      - checkout
-      - attach_workspace:
-          at: /tmp
       - setup-docker-buildx
       - setup-image-vars
+      - docker-login
       - run:
-          name: Login to GitHub Container Registry
+          name: Retag temp image to final tag
           command: |
-            if [ -z "$GITHUB_TOKEN" ]; then
-              echo "Error: GITHUB_TOKEN environment variable is not set"
-              exit 1
-            fi
-            # Create Docker config with GHCR authentication
-            mkdir -p ~/.docker
-            echo -n "${GITHUB_USERNAME}:${GITHUB_TOKEN}" | base64 > /tmp/auth.txt
-            echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(cat /tmp/auth.txt)\"}}}" > ~/.docker/config.json
-            rm /tmp/auth.txt
+            docker buildx imagetools create "${TEMP_IMAGE_NAME}" --tag "${FULL_IMAGE_NAME}"
       - run:
-          name: Build and push Docker image (multi-platform)
+          name: Delete temp image tag
           command: |
-            docker buildx build \
-              --platform linux/amd64,linux/arm64 \
-              --tag "${FULL_IMAGE_NAME}" \
-              --file "${DOCKERFILE}" \
-              --push \
-              .
-      - run:
-          name: Tag as latest (if on main/master branch)
-          command: |
-            if [ "$CIRCLE_BRANCH" = "master" ] || [ "$CIRCLE_BRANCH" = "main" ]; then
-              docker buildx imagetools create "${FULL_IMAGE_NAME}" --tag "${LATEST_IMAGE_NAME}"
-            fi
-      - run:
-          name: Output image information
-          command: |
-            echo "Successfully built and pushed:"
-            echo "  - ${FULL_IMAGE_NAME}"
-            if [ "$CIRCLE_BRANCH" = "master" ] || [ "$CIRCLE_BRANCH" = "main" ]; then
-              echo "  - ${LATEST_IMAGE_NAME}"
+            # Get package version ID for the "prescan" tag and delete it
+            # Note: Use 'orgs' for organization packages, 'users' for personal account packages
+            # GHCR requires API deletion - docker CLI doesn't support it
+            PACKAGE_VERSION_ID=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions" \
+              | grep -B5 '"prescan"' | grep '"id"' | head -1 | sed 's/.*"id": *\([0-9]*\).*/\1/')
+
+            if [ -n "$PACKAGE_VERSION_ID" ]; then
+              curl -X DELETE \
+                -H "Authorization: token ${GITHUB_TOKEN}" \
+                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}"
             fi
 
 # Orchestrate jobs using workflows
