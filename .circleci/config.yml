@@ -142,7 +142,15 @@ jobs:
       - run:
           name: Login to GitHub Container Registry
           command: |
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin
+            if [ -z "$GITHUB_TOKEN" ]; then
+              echo "Error: GITHUB_TOKEN environment variable is not set"
+              exit 1
+            fi
+            # Create Docker config with GHCR authentication
+            mkdir -p ~/.docker
+            echo -n "${GITHUB_USERNAME}:${GITHUB_TOKEN}" | base64 > /tmp/auth.txt
+            echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(cat /tmp/auth.txt)\"}}}" > ~/.docker/config.json
+            rm /tmp/auth.txt
       - run:
           name: Build and push Docker image (multi-platform)
           command: |
