@@ -105,16 +105,22 @@ jobs:
           name: Delete temp image on scan failure
           command: |
             # Get package version ID for the "prescan" tag and delete it
+            # GitHub API requires version ID, not tag name, so we find the version with "prescan" tag
             # Note: Use 'orgs' for organization packages, 'users' for personal account packages
-            # GHCR requires API deletion - docker CLI doesn't support it
-            PACKAGE_VERSION_ID=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions" \
-              | grep -B5 '"prescan"' | grep '"id"' | head -1 | sed 's/.*"id": *\([0-9]*\).*/\1/')
+            RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions")
 
-            if [ -n "$PACKAGE_VERSION_ID" ]; then
+            # Find the version ID that has "prescan" in its tags array
+            # Parse JSON to find object with "prescan" tag and extract its id
+            PACKAGE_VERSION_ID=$(echo "$RESPONSE" | awk '
+              /"id"/ { id = $0; gsub(/[^0-9]/, "", id); current_id = id }
+              /"prescan"/ { if (current_id) print current_id; exit }
+            ' || true)
+
+            if [ -n "$PACKAGE_VERSION_ID" ] && [ "$PACKAGE_VERSION_ID" != "" ]; then
               curl -X DELETE \
                 -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}"
+                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}" || true
             fi
           when: on_fail
 
@@ -136,16 +142,22 @@ jobs:
           name: Delete temp image tag
           command: |
             # Get package version ID for the "prescan" tag and delete it
+            # GitHub API requires version ID, not tag name, so we find the version with "prescan" tag
             # Note: Use 'orgs' for organization packages, 'users' for personal account packages
-            # GHCR requires API deletion - docker CLI doesn't support it
-            PACKAGE_VERSION_ID=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions" \
-              | grep -B5 '"prescan"' | grep '"id"' | head -1 | sed 's/.*"id": *\([0-9]*\).*/\1/')
+            RESPONSE=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions")
 
-            if [ -n "$PACKAGE_VERSION_ID" ]; then
+            # Find the version ID that has "prescan" in its tags array
+            # Parse JSON to find object with "prescan" tag and extract its id
+            PACKAGE_VERSION_ID=$(echo "$RESPONSE" | awk '
+              /"id"/ { id = $0; gsub(/[^0-9]/, "", id); current_id = id }
+              /"prescan"/ { if (current_id) print current_id; exit }
+            ' || true)
+
+            if [ -n "$PACKAGE_VERSION_ID" ] && [ "$PACKAGE_VERSION_ID" != "" ]; then
               curl -X DELETE \
                 -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}"
+                "https://api.github.com/orgs/${GITHUB_USERNAME}/packages/container/${IMAGE_NAME}/versions/${PACKAGE_VERSION_ID}" || true
             fi
 
 # Orchestrate jobs using workflows
