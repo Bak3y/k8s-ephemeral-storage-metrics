@@ -2,6 +2,18 @@
 # See: https://circleci.com/docs/reference/configuration-reference
 version: 2.1
 
+# Define parameters for the workflow
+parameters:
+  github_username:
+    type: string
+    default: "bak3y"
+  image_name:
+    type: string
+    default: "k8s-ephemeral-storage-metrics"
+  dockerfile:
+    type: string
+    default: "Dockerfile"
+
 # Define reusable commands
 commands:
   setup-docker-buildx:
@@ -21,14 +33,15 @@ commands:
           name: Determine image tag
           command: |
             if [ -n "$CIRCLE_TAG" ]; then
-              # Use git tag if available
-              IMAGE_TAG="$CIRCLE_TAG"
+              # Use git tag if available (convert to lowercase)
+              IMAGE_TAG=$(echo "$CIRCLE_TAG" | tr '[:upper:]' '[:lower:]')
             elif [ "$CIRCLE_BRANCH" = "master" ] || [ "$CIRCLE_BRANCH" = "main" ]; then
               # Use commit SHA for main/master branch
               IMAGE_TAG="${CIRCLE_SHA1:0:7}"
             else
-              # Use branch name and commit SHA for other branches
-              IMAGE_TAG="${CIRCLE_BRANCH}-${CIRCLE_SHA1:0:7}"
+              # Use branch name and commit SHA for other branches (convert branch to lowercase)
+              BRANCH_LOWER=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]')
+              IMAGE_TAG="${BRANCH_LOWER}-${CIRCLE_SHA1:0:7}"
             fi
             echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
             echo "export FULL_IMAGE_NAME=ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}" >> $BASH_ENV
@@ -45,9 +58,9 @@ jobs:
     machine:
       image: ubuntu-2204:current
     environment:
-      IMAGE_NAME: k8s-ephemeral-storage-metrics
-      DOCKERFILE: Dockerfile
-      GITHUB_USERNAME: Bak3y
+      IMAGE_NAME: << pipeline.parameters.image_name >>
+      DOCKERFILE: << pipeline.parameters.dockerfile >>
+      GITHUB_USERNAME: << pipeline.parameters.github_username >>
     steps:
       - checkout
       - setup-docker-buildx
@@ -77,8 +90,8 @@ jobs:
     machine:
       image: ubuntu-2204:current
     environment:
-      IMAGE_NAME: k8s-ephemeral-storage-metrics
-      GITHUB_USERNAME: Bak3y
+      IMAGE_NAME: << pipeline.parameters.image_name >>
+      GITHUB_USERNAME: << pipeline.parameters.github_username >>
     steps:
       - attach_workspace:
           at: /tmp
@@ -109,9 +122,9 @@ jobs:
     machine:
       image: ubuntu-2204:current
     environment:
-      IMAGE_NAME: k8s-ephemeral-storage-metrics
-      DOCKERFILE: Dockerfile
-      GITHUB_USERNAME: Bak3y
+      IMAGE_NAME: << pipeline.parameters.image_name >>
+      DOCKERFILE: << pipeline.parameters.dockerfile >>
+      GITHUB_USERNAME: << pipeline.parameters.github_username >>
     steps:
       - checkout
       - attach_workspace:
