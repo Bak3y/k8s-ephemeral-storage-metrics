@@ -27,22 +27,12 @@ commands:
             docker buildx inspect --bootstrap
 
   determine-image-tag:
-    description: "Determine the image tag based on branch/tag"
+    description: "Determine the image tag using commit SHA"
     steps:
       - run:
           name: Determine image tag
           command: |
-            if [ -n "$CIRCLE_TAG" ]; then
-              # Use git tag if available (convert to lowercase)
-              IMAGE_TAG=$(echo "$CIRCLE_TAG" | tr '[:upper:]' '[:lower:]')
-            elif [ "$CIRCLE_BRANCH" = "master" ] || [ "$CIRCLE_BRANCH" = "main" ]; then
-              # Use commit SHA for main/master branch
-              IMAGE_TAG="${CIRCLE_SHA1:0:7}"
-            else
-              # Use branch name and commit SHA for other branches (convert branch to lowercase)
-              BRANCH_LOWER=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]')
-              IMAGE_TAG="${BRANCH_LOWER}-${CIRCLE_SHA1:0:7}"
-            fi
+            IMAGE_TAG="${CIRCLE_SHA1:0:7}"
             echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
             echo "export FULL_IMAGE_NAME=ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}" >> $BASH_ENV
             echo "export LATEST_IMAGE_NAME=ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:latest" >> $BASH_ENV
@@ -133,12 +123,21 @@ jobs:
       - run:
           name: Load image metadata
           command: |
+            if [ ! -f /tmp/image_tag.txt ] || [ ! -f /tmp/full_image_name.txt ] || [ ! -f /tmp/latest_image_name.txt ]; then
+              echo "Error: Image metadata files not found in workspace"
+              exit 1
+            fi
             export IMAGE_TAG=$(cat /tmp/image_tag.txt)
             export FULL_IMAGE_NAME=$(cat /tmp/full_image_name.txt)
             export LATEST_IMAGE_NAME=$(cat /tmp/latest_image_name.txt)
+            if [ -z "$FULL_IMAGE_NAME" ]; then
+              echo "Error: FULL_IMAGE_NAME is empty"
+              exit 1
+            fi
             echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
             echo "export FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $BASH_ENV
             echo "export LATEST_IMAGE_NAME=$LATEST_IMAGE_NAME" >> $BASH_ENV
+            echo "Loaded image metadata: $FULL_IMAGE_NAME"
       - run:
           name: Login to GitHub Container Registry
           command: |
