@@ -1,6 +1,6 @@
 module github.com/jmcgrath207/k8s-ephemeral-storage-metrics
 
-go 1.24.6
+go 1.24.11
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0

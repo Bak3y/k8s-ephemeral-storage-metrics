@@ -1,20 +1,18 @@
 # K8s Ephemeral Storage Metrics
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Actions Status](https://github.com/jmcgrath207/k8s-ephemeral-storage-metrics/workflows/ci/badge.svg)](https://github.com/jmcgrath207/k8s-ephemeral-storage-metrics/actions)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/k8s-ephemeral-storage-metrics)](https://artifacthub.io/packages/helm/k8s-ephemeral-storage-metrics/k8s-ephemeral-storage-metrics)
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/jmcgrath207/k8s-ephemeral-storage-metrics/total)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Actions Status](https://github.com/jmcgrath207/k8s-ephemeral-storage-metrics/workflows/ci/badge.svg)](https://github.com/jmcgrath207/k8s-ephemeral-storage-metrics/actions) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/k8s-ephemeral-storage-metrics)](https://artifacthub.io/packages/helm/k8s-ephemeral-storage-metrics/k8s-ephemeral-storage-metrics) ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/jmcgrath207/k8s-ephemeral-storage-metrics/total)
 
-A prometheus ephemeral storage metric exporter for pods, containers,
-nodes, and volumes.
+---
 
-This project was created
-to address lack of monitoring in [Kubernetes](https://github.com/kubernetes/kubernetes/issues/69507)
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/Bak3y/k8s-ephemeral-storage-metrics/tree/circleci-project-setup.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/Bak3y/k8s-ephemeral-storage-metrics/tree/circleci-project-setup)
+
+A prometheus ephemeral storage metric exporter for pods, containers, nodes, and volumes.
+
+This project was created to address lack of monitoring in [Kubernetes](https://github.com/kubernetes/kubernetes/issues/69507)
 
 This project does not monitor CSI backed ephemeral storage ex. [Generic ephemeral volumes](https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/#generic-ephemeral-volumes)
 
 ![main image](img/screenshot.png)
-
 
 ## Helm Install
 
@@ -27,7 +25,7 @@ helm upgrade --install my-deployment k8s-ephemeral-storage-metrics/k8s-ephemeral
 ## Values
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
+| --- | --- | --- | --- |
 | affinity | object | `{}` |  |
 | client_go_burst | int | `10` | Maximum burst for throttle. |
 | client_go_qps | int | `5` | QPS indicates the maximum QPS to the master from this client. |
@@ -98,11 +96,7 @@ helm upgrade --install my-deployment k8s-ephemeral-storage-metrics/k8s-ephemeral
 
 ## Prometheus alert rules
 
-To prevent from multiple kind of alerts being fired for a single container or
-emptyDir volume when both `prometheus.enable` and `prometheus.rules.enable` are
-on, add the following [inhibition
-rules](https://prometheus.io/docs/alerting/latest/configuration/#inhibition-related-settings)
-to your Alert Manager config:
+To prevent from multiple kind of alerts being fired for a single container or emptyDir volume when both `prometheus.enable` and `prometheus.rules.enable` are on, add the following [inhibition rules](https://prometheus.io/docs/alerting/latest/configuration/#inhibition-related-settings) to your Alert Manager config:
 
 ```yaml
 - source_matchers:
@@ -128,30 +122,37 @@ to your Alert Manager config:
 ## Contribute
 
 ### Start minikube
+
 ```bash
 make new_minikube
 ```
 
 ### Run locally
+
 ```bash
 make deploy_local
 ```
 
 ### Run locally with Delve Debug
+
 ```bash
 make deploy_debug
 ```
+
 Then connect to `localhost:30002` with [delve](https://github.com/go-delve/delve) or your IDE.
 
 ### Run e2e Test
+
 ```bash
 make deploy_e2e
 ```
 
 ### Debug e2e
+
 ```bash
 make deploy_e2e_debug
 ```
+
 Then run a debug against [deployment_test.go](tests/e2e/deployment_test.go)
 
 ## License
