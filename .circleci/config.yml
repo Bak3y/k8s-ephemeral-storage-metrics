@@ -26,20 +26,18 @@ commands:
             docker buildx create --name builder --use || true
             docker buildx inspect --bootstrap
 
-  determine-image-tag:
-    description: "Determine the image tag using commit SHA"
+  setup-image-vars:
+    description: "Set up image name environment variables"
     steps:
       - run:
-          name: Determine image tag
+          name: Setup image variables
           command: |
             IMAGE_TAG="${CIRCLE_SHA1:0:7}"
+            FULL_IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}"
+            LATEST_IMAGE_NAME="ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:latest"
             echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
-            echo "export FULL_IMAGE_NAME=ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}" >> $BASH_ENV
-            echo "export LATEST_IMAGE_NAME=ghcr.io/${GITHUB_USERNAME}/${IMAGE_NAME}:latest" >> $BASH_ENV
-            # Persist for other jobs
-            echo "$IMAGE_TAG" > /tmp/image_tag.txt
-            echo "${FULL_IMAGE_NAME}" > /tmp/full_image_name.txt
-            echo "${LATEST_IMAGE_NAME}" > /tmp/latest_image_name.txt
+            echo "export FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $BASH_ENV
+            echo "export LATEST_IMAGE_NAME=$LATEST_IMAGE_NAME" >> $BASH_ENV
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
@@ -54,7 +52,7 @@ jobs:
     steps:
       - checkout
       - setup-docker-buildx
-      - determine-image-tag
+      - setup-image-vars
       - run:
           name: Build Docker image (single platform for scanning)
           command: |
@@ -71,9 +69,6 @@ jobs:
       - persist_to_workspace:
           root: /tmp
           paths:
-            - image_tag.txt
-            - full_image_name.txt
-            - latest_image_name.txt
             - image.tar
 
   scan:
@@ -85,15 +80,7 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp
-      - run:
-          name: Load image metadata
-          command: |
-            export IMAGE_TAG=$(cat /tmp/image_tag.txt)
-            export FULL_IMAGE_NAME=$(cat /tmp/full_image_name.txt)
-            export LATEST_IMAGE_NAME=$(cat /tmp/latest_image_name.txt)
-            echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
-            echo "export FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $BASH_ENV
-            echo "export LATEST_IMAGE_NAME=$LATEST_IMAGE_NAME" >> $BASH_ENV
+      - setup-image-vars
       - run:
           name: Scan image for vulnerabilities
           command: |
@@ -120,24 +107,7 @@ jobs:
       - attach_workspace:
           at: /tmp
       - setup-docker-buildx
-      - run:
-          name: Load image metadata
-          command: |
-            if [ ! -f /tmp/image_tag.txt ] || [ ! -f /tmp/full_image_name.txt ] || [ ! -f /tmp/latest_image_name.txt ]; then
-              echo "Error: Image metadata files not found in workspace"
-              exit 1
-            fi
-            export IMAGE_TAG=$(cat /tmp/image_tag.txt)
-            export FULL_IMAGE_NAME=$(cat /tmp/full_image_name.txt)
-            export LATEST_IMAGE_NAME=$(cat /tmp/latest_image_name.txt)
-            if [ -z "$FULL_IMAGE_NAME" ]; then
-              echo "Error: FULL_IMAGE_NAME is empty"
-              exit 1
-            fi
-            echo "export IMAGE_TAG=$IMAGE_TAG" >> $BASH_ENV
-            echo "export FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $BASH_ENV
-            echo "export LATEST_IMAGE_NAME=$LATEST_IMAGE_NAME" >> $BASH_ENV
-            echo "Loaded image metadata: $FULL_IMAGE_NAME"
+      - setup-image-vars
       - run:
           name: Login to GitHub Container Registry
           command: |
