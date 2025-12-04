@@ -42,8 +42,8 @@ commands:
 # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
 jobs:
   build:
-    docker:
-      - image: cimg/base:current
+    machine:
+      image: ubuntu-2204:current
     environment:
       IMAGE_NAME: k8s-ephemeral-storage-metrics
       DOCKERFILE: Dockerfile
@@ -74,8 +74,8 @@ jobs:
             - image.tar
 
   scan:
-    docker:
-      - image: cimg/base:current
+    machine:
+      image: ubuntu-2204:current
     environment:
       IMAGE_NAME: k8s-ephemeral-storage-metrics
       GITHUB_USERNAME: Bak3y
@@ -106,8 +106,8 @@ jobs:
               --format table
 
   push:
-    docker:
-      - image: cimg/base:current
+    machine:
+      image: ubuntu-2204:current
     environment:
       IMAGE_NAME: k8s-ephemeral-storage-metrics
       DOCKERFILE: Dockerfile
