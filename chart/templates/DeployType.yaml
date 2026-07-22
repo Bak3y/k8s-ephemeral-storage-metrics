@@ -71,7 +71,7 @@ spec:
           livenessProbe:
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
             httpGet:
-              path: /metrics
+              path: {{ .Values.probes.liveness.path }}
               port: {{ .Values.metrics.port  }}
               scheme: HTTP
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
@@ -81,7 +81,7 @@ spec:
           readinessProbe:
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
             httpGet:
-              path: /metrics
+              path: {{ .Values.probes.readiness.path }}
               port: {{ .Values.metrics.port  }}
               scheme: HTTP
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
@@ -104,6 +104,18 @@ spec:
               value: "{{ .Values.client_go_burst }}"
             - name: LOG_LEVEL
               value: "{{ .Values.log_level }}"
+              {{- if .Values.list_pods_with_cache }}
+            - name: EPHEMERAL_STORAGE_LIST_PODS_WITH_CACHE
+              value: "{{ .Values.list_pods_with_cache }}"
+              {{- end }}
+              {{- if .Values.node_label_selector }}
+            - name: NODE_LABEL_SELECTOR
+              value: "{{ .Values.node_label_selector }}"
+              {{- end }}
+              {{- if .Values.kubeconfig }}
+            - name: KUBECONFIG
+              value: "{{ .Values.kubeconfig }}"
+              {{- end }}
               {{- if .Values.metrics.ephemeral_storage_pod_usage }}
             - name: EPHEMERAL_STORAGE_POD_USAGE
               value: "{{ .Values.metrics.ephemeral_storage_pod_usage }}"
@@ -123,6 +135,14 @@ spec:
               {{- if .Values.metrics.ephemeral_storage_container_limit_percentage }}
             - name: EPHEMERAL_STORAGE_CONTAINER_LIMIT_PERCENTAGE
               value: "{{ .Values.metrics.ephemeral_storage_container_limit_percentage }}"
+              {{- end }}
+              {{- if .Values.metrics.ephemeral_storage_container_rootfs_usage }}
+            - name: EPHEMERAL_STORAGE_CONTAINER_ROOTFS_USAGE
+              value: "{{ .Values.metrics.ephemeral_storage_container_rootfs_usage }}"
+              {{- end }}
+              {{- if .Values.metrics.ephemeral_storage_container_logs_usage }}
+            - name: EPHEMERAL_STORAGE_CONTAINER_LOGS_USAGE
+              value: "{{ .Values.metrics.ephemeral_storage_container_logs_usage }}"
               {{- end }}
               {{- if .Values.metrics.ephemeral_storage_container_volume_usage }}
             - name: EPHEMERAL_STORAGE_CONTAINER_VOLUME_USAGE
@@ -156,17 +176,9 @@ spec:
             - name: PPROF
               value: "{{ .Values.pprof }}"
               {{- end }}
-              {{- if .Values.metrics.gc_enabled }}
-            - name: GC_ENABLED
-              value: "{{ .Values.metrics.gc_enabled }}"
-              {{- end }}
-              {{- if .Values.metrics.gc_interval }}
-            - name: GC_INTERVAL
-              value: "{{ .Values.metrics.gc_interval }}"
-              {{- end }}
-              {{- if .Values.metrics.gc_batch_size }}
-            - name: GC_BATCH_SIZE
-              value: "{{ .Values.metrics.gc_batch_size }}"
+              {{- if .Values.metrics.scrape_miss_tolerance }}
+            - name: SCRAPE_MISS_TOLERANCE
+              value: "{{ .Values.metrics.scrape_miss_tolerance }}"
               {{- end }}
               {{- if eq .Values.deploy_type  "DaemonSet" }}
             - name: CURRENT_NODE_NAME

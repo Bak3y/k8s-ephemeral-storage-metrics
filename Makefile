@@ -34,6 +34,11 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: test-unit
+test-unit: ## Run unit tests (excludes e2e which needs a cluster).
+	go vet ./...
+	go test ./pkg/... ./cmd/...
+
 helm-docs:
 	test -s $(LOCALBIN)/helm-docs || GOBIN=$(LOCALBIN) go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest
 	$(LOCALBIN)/helm-docs  --template-files "${GITROOT}/chart/README.md.gotmpl"
@@ -62,6 +67,12 @@ minikube_scale_up:
 
 minikube_scale_down:
 	minikube node delete m02
+
+minikube_node2_stop:
+	docker stop minikube-m02
+
+minikube_node2_start:
+	docker start minikube-m02
 
 init: fmt vet gosec
 
@@ -104,13 +115,13 @@ release-helm:
 
 release: release-docker release-helm helm-docs
 	# Prod release
-	# ex. make VERSION=1.19.2 release
+	# ex. make VERSION=1.21.3 release
 	# Prerelease Candidate
 	# ex. make VERSION=1.11.2-rc01 release
 
 release-github:
 	# Prod release
-	# ex. make VERSION=1.19.2 release-github
+	# ex. make VERSION=1.21.3 release-github
 	gh repo set-default jmcgrath207/k8s-ephemeral-storage-metrics
 	gh release create ${VERSION} --generate-notes
 	gh release upload ${VERSION} "chart/k8s-ephemeral-storage-metrics-${VERSION}.tgz"

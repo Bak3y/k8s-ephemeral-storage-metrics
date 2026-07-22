@@ -24,6 +24,33 @@ var (
 	Pod                pod.Collector
 )
 
+// collectorDeps holds the constructor/wiring functions used to build the
+// node and pod collectors. It exists so tests can substitute recording
+// stand-ins and assert the startup call order deterministically, without
+// standing up a real Kubernetes client or Prometheus registry.
+type collectorDeps struct {
+	newNodeCollector func(int64) node.Node
+	newPodCollector  func(int64) pod.Collector
+	startNodeWatch   func(*node.Node)
+}
+
+var defaultCollectorDeps = collectorDeps{
+	newNodeCollector: node.NewCollector,
+	newPodCollector:  pod.NewCollector,
+	startNodeWatch:   (*node.Node).StartWatch,
+}
+
+// startCollectors wires the node and pod collectors, starting the node
+// watch only after both collectors have been constructed. The pod collector
+// must exist before the node watch begins, since a Deployment-mode watch
+// can deliver node delete events that evict pod metrics.
+func startCollectors(sampleInterval int64, deps collectorDeps) (node.Node, pod.Collector) {
+	n := deps.newNodeCollector(sampleInterval)
+	p := deps.newPodCollector(sampleInterval)
+	deps.startNodeWatch(&n)
+	return n, p
+}
+
 type ephemeralStorageMetrics struct {
 	Node struct {
 		NodeName string `json:"nodeName"`
@@ -41,25 +68,24 @@ type ephemeralStorageMetrics struct {
 			InodesFree     float64 `json:"inodesFree"`
 			InodesUsed     float64 `json:"inodesUsed"`
 		} `json:"ephemeral-storage"`
+		Containers []pod.ContainerStats `json:"containers,omitempty"`
 
 		Volumes []pod.Volume `json:"volume,omitempty"`
 	}
 }
 
-func setMetrics(nodeName string) {
-
+func setMetricsFromSummary(nodeName string, content []byte) error {
 	var data ephemeralStorageMetrics
-
-	start := time.Now()
-
-	content, err := Node.Query(nodeName)
-	// Skip node query if there is an error.
-	if err != nil {
-		return
+	if err := json.Unmarshal(content, &data); err != nil {
+		return fmt.Errorf("decode stats summary: %w", err)
 	}
 
-	log.Debug().Msg(fmt.Sprintf("Fetched proxy stats from node : %s", nodeName))
-	_ = json.Unmarshal(content, &data)
+	// Evict pods absent from the stats summary for scrapeMissTolerance consecutive scrapes
+	currentPods := make([]string, 0, len(data.Pods))
+	for _, p := range data.Pods {
+		currentPods = append(currentPods, p.PodRef.Name)
+	}
+	pod.EvictStalePods(nodeName, currentPods)
 
 	for _, p := range data.Pods {
 		podName := p.PodRef.Name
@@ -75,22 +101,53 @@ func setMetrics(nodeName string) {
 			continue
 		}
 		Node.SetMetrics(nodeName, availableBytes, capacityBytes)
-		Pod.SetMetrics(podName, podNamespace, nodeName, usedBytes, availableBytes, capacityBytes, inodes, inodesFree, inodesUsed, p.Volumes)
+		Pod.SetMetrics(podName, podNamespace, nodeName, usedBytes, availableBytes, capacityBytes, inodes, inodesFree, inodesUsed, p.Volumes, p.Containers)
 	}
 
-	adjustTime := sampleIntervalMill - time.Now().Sub(start).Milliseconds()
+	return nil
+}
+
+func setMetrics(nodeName string) {
+	start := time.Now()
+
+	content, err := Node.Query(nodeName)
+	// Skip node query if there is an error.
+	if err != nil {
+		return
+	}
+
+	log.Debug().Msg(fmt.Sprintf("Fetched proxy stats from node : %s", nodeName))
+	if err := setMetricsFromSummary(nodeName, content); err != nil {
+		log.Warn().Err(err).Msgf("Failed to decode proxy stats from node: %s", nodeName)
+		return
+	}
+
+	adjustTime := sampleIntervalMill - time.Since(start).Milliseconds()
 	if adjustTime <= 0.0 {
 		log.Error().Msgf("Node %s: Polling Rate could not keep up. Adjust your Interval to a higher number than %d seconds", nodeName, sampleInterval)
 	}
 	if Node.AdjustedPollingRate {
 		node.AdjustedPollingRateGaugeVec.With(prometheus.Labels{"node_name": nodeName}).Set(float64(adjustTime))
 	}
-
 }
 
 func getMetrics() {
+	// Wait for pod initialization with a timeout to prevent deadlock
+	// If initialization takes too long, log a warning and continue anyway
+	initTimeout := time.Duration(sampleInterval*2) * time.Second
+	initDone := make(chan struct{})
 
-	Pod.WaitGroup.Wait()
+	go func() {
+		Pod.WaitGroup.Wait()
+		close(initDone)
+	}()
+
+	select {
+	case <-initDone:
+		log.Info().Msg("Pod initialization completed successfully")
+	case <-time.After(initTimeout):
+		log.Warn().Msgf("Pod initialization timed out after %v, continuing anyway. Metrics may be incomplete.", initTimeout)
+	}
 
 	p, _ := ants.NewPoolWithFunc(Node.MaxNodeQueryConcurrency, func(node interface{}) {
 		setMetrics(node.(string))
@@ -117,17 +174,45 @@ func main() {
 	pprofEnabled, _ := strconv.ParseBool(dev.GetEnv("PPROF", "false"))
 	sampleInterval, _ = strconv.ParseInt(dev.GetEnv("SCRAPE_INTERVAL", "15"), 10, 64)
 	sampleIntervalMill = sampleInterval * 1000
+	readinessTimeoutSeconds, _ := strconv.Atoi(dev.GetEnv("READINESS_PROBE_TIMEOUT_SECONDS", "1"))
+	readinessTimeout := time.Duration(readinessTimeoutSeconds) * time.Second
 
 	dev.SetLogger()
 	dev.SetK8sClient()
-	Node = node.NewCollector(sampleInterval)
-	Pod = pod.NewCollector(sampleInterval)
+	Node, Pod = startCollectors(sampleInterval, defaultCollectorDeps)
 
 	if pprofEnabled {
 		go dev.EnablePprof()
 	}
 	go getMetrics()
-	http.Handle("/metrics", promhttp.Handler())
+
+	// Health check endpoint for readiness probe - responds immediately
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("OK")); err != nil {
+			log.Error().Err(err).Msg("Failed to write health check response")
+		}
+	})
+
+	// Metrics endpoint with timing middleware to diagnose slow responses
+	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		promhttp.Handler().ServeHTTP(w, r)
+		duration := time.Since(start)
+
+		if duration > readinessTimeout {
+			log.Warn().
+				Dur("duration", duration).
+				Dur("timeout", readinessTimeout).
+				Msg("Metrics endpoint took longer than readiness probe timeout")
+		} else if duration > readinessTimeout/2 {
+			log.Info().
+				Dur("duration", duration).
+				Dur("timeout", readinessTimeout).
+				Msg("Metrics endpoint response time approaching timeout")
+		}
+	})
+	http.Handle("/metrics", metricsHandler)
 	log.Info().Msg(fmt.Sprintf("Starting server listening on :%s", port))
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%s", port),

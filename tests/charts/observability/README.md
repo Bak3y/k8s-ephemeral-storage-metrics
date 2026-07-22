@@ -6,7 +6,24 @@ helm repo update
 helm upgrade --install my-deployment k8s-ephemeral-storage-metrics/k8s-ephemeral-storage-metrics
 ```
 
-{{ template "chart.valuesSection" . }}
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| grafana-operator.enabled | bool | `true` |  |
+| kube-prometheus-stack.alertmanager.enabled | bool | `false` |  |
+| kube-prometheus-stack.enabled | bool | `true` |  |
+| kube-prometheus-stack.grafana.enabled | bool | `false` |  |
+| kube-prometheus-stack.kube-state-metrics.enabled | bool | `false` |  |
+| kube-prometheus-stack.kubeApiServer.enabled | bool | `false` |  |
+| kube-prometheus-stack.kubeControllerManager.enabled | bool | `false` |  |
+| kube-prometheus-stack.kubelet.enabled | bool | `false` |  |
+| kube-prometheus-stack.kubernetesServiceMonitors.enabled | bool | `false` |  |
+| kube-prometheus-stack.prometheus-node-exporter.enabled | bool | `false` |  |
+| kube-prometheus-stack.prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues | bool | `false` |  |
+| kube-prometheus-stack.prometheus.prometheusSpec.probeSelectorNilUsesHelmValues | bool | `false` |  |
+| kube-prometheus-stack.prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues | bool | `false` |  |
+| pyroscope.enabled | bool | `true` |  |
 
 ## Prometheus alert rules
 
